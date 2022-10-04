@@ -63,11 +63,11 @@ def build_toy_graph() -> jraph.GraphsTuple:
 def convert_jraph_to_networkx_graph(jraph_graph: jraph.GraphsTuple) -> nx.Graph:
     nodes, edges, receivers, senders, _, _, _ = jraph_graph
     nx_graph = nx.DiGraph()
-    
+
     if nodes is None:
         for n in range(jraph_graph.n_node[0]):
             nx_graph.add_node(n)
-    
+
     else:
         for n in range(jraph_graph.n_node[0]):
             nx_graph.add_node(n, node_feature=nodes[n])
@@ -78,7 +78,7 @@ def convert_jraph_to_networkx_graph(jraph_graph: jraph.GraphsTuple) -> nx.Graph:
     else:
         for e in range(jraph_graph.n_edge[0]):
             nx_graph.add_edge(int(senders[e]), int(
-            receivers[e]), edge_feature=edges[e])
+                receivers[e]), edge_feature=edges[e])
 
     return nx_graph
 
@@ -86,9 +86,36 @@ def convert_jraph_to_networkx_graph(jraph_graph: jraph.GraphsTuple) -> nx.Graph:
 def draw_jraph_graph_structure(jraph_graph: jraph.GraphsTuple) -> None:
     nx_graph = convert_jraph_to_networkx_graph(jraph_graph)
     pos = nx.spring_layout(nx_graph)
-    nx.draw(nx_graph, pos=pos, with_labels=True, node_size=500, font_color='yellow')
+    nx.draw(nx_graph, pos=pos, with_labels=True,
+            node_size=500, font_color='yellow')
     plt.show()
 
 
+def apply_simplified_gcn(graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
+  # Unpack GraphsTuple
+  nodes, _, receivers, senders, _, _, _ = graph
+
+  # 1. Update node features
+  # For simplicity, we will first use an identify function here, and replace it
+  # with a trainable MLP block later.
+  def update_node_fn(nodes): return nodes
+  nodes = update_node_fn(nodes)
+
+  # 2. Aggregate node features over nodes in neighborhood
+  # in-bound node 들의 node feature들을 더해서 각 node의 feature
+  # Equivalent to jnp.sum(n_node), but jittable
+  total_num_nodes = tree.tree_leaves(nodes)[0].shape[0]
+  aggregate_nodes_fn = jax.ops.segment_sum
+
+  # Compute new node features by aggregating messages from neighboring nodes
+  nodes = tree.tree_map(lambda x: aggregate_nodes_fn(x[senders], receivers, total_num_nodes), nodes)
+  out_graph = graph._replace(nodes=nodes)
+  return out_graph
+
 graph = build_toy_graph()
 draw_jraph_graph_structure(graph)
+
+draw_jraph_graph_structure(graph)
+out_graph = apply_simplified_gcn(graph)
+
+print(out_graph.nodes)
